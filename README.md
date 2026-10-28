@@ -34,3 +34,10 @@ El mapa de salida está definido explícitamente en `SD3_MAP` en `server.py`:
 Estas tres notas coinciden con General MIDI y con el mapa predeterminado de Superior Drummer. No se exportan las demás articulaciones de SD3 ni control continuo del hi-hat. Usá el mapa predeterminado en SD3; un preset personalizado o de batería electrónica puede reasignar notas.
 
 Referencia de compatibilidad: https://onlinemidiremap.com/blog.html
+
+## Windows: doble clic
+
+Instalá Python 3.11 de 64 bits (con su lanzador `py`) y abrí `INICIAR.bat`.
+La primera ejecución requiere Internet para instalar las dependencias. Las siguientes reutilizan el entorno local. Mantené abierta la consola mientras usás la web. Si el puerto 8000 ya está ocupado, cerrá la otra instancia antes de iniciar.
+
+La aplicación requiere un backend Python: subirla a GitHub permite descargarla y versionarla, pero GitHub Pages por sí solo no ejecuta la transcripción.
