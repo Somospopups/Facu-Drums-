@@ -28,8 +28,31 @@ def midi_file(hits,bpm):
     return b'MThd'+struct.pack('>IHHH',6,0,1,480)+b'MTrk'+struct.pack('>I',len(track))+track
 
 def analyze(raw,sensitivity,quantize,manual_bpm):
-    y,sr=sf.read(io.BytesIO(raw),dtype='float32',always_2d=True)
-    if len(y)/sr>180: raise ValueError('El audio debe durar como máximo 3 minutos.')
+    hits=[]; bpm=float(manual_bpm) if manual_bpm else None
+    with sf.SoundFile(io.BytesIO(raw)) as audio:
+        sr=audio.samplerate; duration=len(audio)/sr
+        if duration>600: raise ValueError('El audio debe durar como máximo 10 minutos.')
+        if duration<.2: raise ValueError('El audio es demasiado corto.')
+        # Read bounded windows, with context on both sides of each boundary.
+        for start in range(0,len(audio),sr*30):
+            end=min(start+sr*30,len(audio))
+            read_start=max(0,start-int(sr*.2)); read_end=min(len(audio),end+int(sr*.2))
+            audio.seek(read_start)
+            y=audio.read(read_end-read_start,dtype='float32',always_2d=True)
+            if np.max(np.abs(y))<1e-5: continue
+            part=analyze_clip(y,sr,sensitivity,False,bpm)
+            if bpm is None: bpm=part['bpm']
+            for hit in part['hits']:
+                absolute=hit['time']+read_start/sr
+                if not start/sr<=absolute<end/sr: continue
+                if quantize: absolute=round(absolute/(60/bpm/4))*(60/bpm/4)
+                hit['time']=round(absolute,4); hits.append(hit)
+    if bpm is None: bpm=120.
+    hits.sort(key=lambda h:h['time'])
+    return {'mapping':'Superior Drummer 3 — Default (36/38/42)','bpm':round(bpm,1),'duration':round(duration,2),'hits':hits,'midi':base64.b64encode(midi_file(hits,bpm)).decode()}
+
+
+def analyze_clip(y,sr,sensitivity,quantize,manual_bpm):
     y=y.mean(axis=1)
     if len(y)<sr*.2 or np.max(np.abs(y))<1e-5: raise ValueError('El audio está vacío, es muy corto o no tiene señal audible.')
     y=librosa.resample(y,orig_sr=sr,target_sr=22050); sr=22050; hop=256
@@ -66,7 +89,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path!='/api/transcribe': self.send_error(404);return
         try:
             size=int(self.headers.get('Content-Length',0))
-            if not 0<size<=45*1024*1024: raise ValueError('El archivo debe pesar menos de 45 MB.')
+            if not 0<size<=150*1024*1024: raise ValueError('El archivo debe pesar menos de 150 MB.')
             raw=self.rfile.read(size)
             sensitivity=float(self.headers.get('X-Sensitivity','55'))
             bpm=float(self.headers.get('X-Bpm','0'))
