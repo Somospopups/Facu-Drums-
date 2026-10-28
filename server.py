@@ -1,6 +1,7 @@
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-import io,json,base64,struct,traceback,os
+import io,json,base64,struct,traceback,os,subprocess,tempfile,sys,re
+from urllib.parse import urlparse,parse_qs
 import numpy as np
 import soundfile as sf
 import librosa
@@ -79,6 +80,41 @@ def analyze_clip(y,sr,sensitivity,quantize,manual_bpm):
     hits.sort(key=lambda h:h['time'])
     return {'mapping':'Superior Drummer 3 — Default (36/38/42)','bpm':round(bpm,1),'duration':round(len(y)/sr,2),'hits':hits,'midi':base64.b64encode(midi_file(hits,bpm)).decode()}
 
+
+def youtube_audio(url):
+    parsed=urlparse(url.strip())
+    host=(parsed.hostname or '').lower()
+    if parsed.scheme!='https' or host not in {'youtube.com','www.youtube.com','m.youtube.com','youtu.be'}:
+        raise ValueError('Pegá un enlace HTTPS de YouTube válido.')
+    if host=='youtu.be': video=parsed.path.strip('/').split('/')[0]
+    elif parsed.path.startswith(('/shorts/','/embed/','/live/')): video=parsed.path.split('/')[2]
+    else: video=parse_qs(parsed.query).get('v',[''])[0]
+    if not re.fullmatch(r'[A-Za-z0-9_-]{11}',video):
+        raise ValueError('Usá el enlace de un video, no de un canal o una playlist.')
+    canonical='https://www.youtube.com/watch?v='+video
+    base=[sys.executable,'-m','yt_dlp','--ignore-config','--no-playlist','--socket-timeout','15','--retries','1']
+    try:
+        result=subprocess.run(base+['--dump-single-json','--skip-download',canonical],capture_output=True,text=True,timeout=60)
+        if result.returncode: raise ValueError('YouTube no permitió acceder al video desde este servidor. Probá con otro enlace o subí el audio como archivo.')
+        meta=json.loads(result.stdout)
+        if meta.get('is_live') or not meta.get('duration'):
+            raise ValueError('No se admiten directos ni videos sin duración definida.')
+        if meta['duration']>600: raise ValueError('El video debe durar como máximo 10 minutos.')
+        import imageio_ffmpeg
+        with tempfile.TemporaryDirectory(prefix='drumline-') as folder:
+            dest=str(Path(folder)/'source.%(ext)s')
+            result=subprocess.run(base+['-f','bestaudio/best','--max-filesize','150M','-o',dest,canonical],capture_output=True,text=True,timeout=180)
+            files=[p for p in Path(folder).glob('source.*') if p.suffix not in {'.part','.ytdl'}]
+            if result.returncode or len(files)!=1:
+                raise ValueError('No se pudo descargar el audio de YouTube. Subí el archivo de audio como alternativa.')
+            output=Path(folder)/'audio.wav'
+            result=subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-nostdin','-v','error','-i',str(files[0]),'-t','600','-vn','-ac','1','-ar','22050','-y',str(output)],capture_output=True,timeout=90)
+            if result.returncode: raise ValueError('No se pudo convertir el audio del video.')
+            return output.read_bytes(),str(meta.get('title','YouTube'))[:180]
+    except subprocess.TimeoutExpired:
+        raise ValueError('YouTube tardó demasiado en responder. Probá de nuevo o subí el audio como archivo.')
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.split('?')[0] not in ['/', '/index.html']:
@@ -86,15 +122,22 @@ class Handler(BaseHTTPRequestHandler):
         data=(ROOT/'index.html').read_bytes()
         self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.end_headers();self.wfile.write(data)
     def do_POST(self):
-        if self.path!='/api/transcribe': self.send_error(404);return
+        if self.path not in ['/api/transcribe','/api/youtube']: self.send_error(404);return
         try:
             size=int(self.headers.get('Content-Length',0))
             if not 0<size<=150*1024*1024: raise ValueError('El archivo debe pesar menos de 150 MB.')
             raw=self.rfile.read(size)
+            title=None
+            if self.path=='/api/youtube':
+                if size>4096: raise ValueError('El enlace es demasiado largo.')
+                payload=json.loads(raw)
+                if payload.get('permission') is not True: raise ValueError('Confirmá que tenés permiso para usar el audio.')
+                raw,title=youtube_audio(str(payload.get('url','')))
             sensitivity=float(self.headers.get('X-Sensitivity','55'))
             bpm=float(self.headers.get('X-Bpm','0'))
             if bpm and not 30<=bpm<=300: raise ValueError('El tempo debe estar entre 30 y 300 BPM.')
             result=analyze(raw,np.clip(sensitivity,0,100),self.headers.get('X-Quantize')=='true',bpm)
+            if title: result['title']=title
             code=200
         except Exception as e:
             traceback.print_exc()

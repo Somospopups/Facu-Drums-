@@ -43,3 +43,9 @@ La primera ejecución requiere Internet para instalar las dependencias. Las sigu
 La aplicación requiere un backend Python: subirla a GitHub permite descargarla y versionarla, pero GitHub Pages por sí solo no ejecuta la transcripción.
 
 Los audios se analizan en ventanas de 30 segundos con contexto en los bordes. Se usa un tempo global, estimado en el primer bloque audible o fijado manualmente. Los archivos largos pueden tardar varios minutos en alojamiento gratuito.
+
+## Enlaces de YouTube
+
+Campo de URL para videos propios o autorizados, hasta 10 minutos, sin playlists ni directos. El servidor obtiene el audio con yt-dlp y lo convierte con el ejecutable de FFmpeg distribuido por imageio-ffmpeg. Los temporales se borran al finalizar. No utiliza cookies, credenciales ni técnicas de evasión de bloqueos.
+
+YouTube puede rechazar conexiones de centros de datos (como Render). El campo no garantiza compatibilidad con todos los videos; si hay bloqueo, usar la carga de archivos. Los tiempos y recursos del alojamiento también pueden limitar la operación. Requiere reconstruir el servicio para instalar las nuevas dependencias.
