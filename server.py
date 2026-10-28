@@ -1,6 +1,6 @@
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-import io,json,base64,struct,traceback
+import io,json,base64,struct,traceback,os
 import numpy as np
 import soundfile as sf
 import librosa
@@ -79,5 +79,6 @@ class Handler(BaseHTTPRequestHandler):
         data=json.dumps(result).encode();self.send_response(code);self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(data)
 
 if __name__=='__main__':
-    print('Drumline disponible en el puerto 8000',flush=True)
-    ThreadingHTTPServer(('0.0.0.0',8000),Handler).serve_forever()
+    port=int(os.environ.get('PORT','8000'))
+    print(f'Drumline disponible en el puerto {port}',flush=True)
+    ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()
